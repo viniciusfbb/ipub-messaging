@@ -81,7 +81,7 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
 
   Para receber uma mensagem com nome, basta declarar o nome no atributo do método
   ```delphi  
-    [Subscribe(TipMessagingThread.Main, 'Name')]
+    [Subscribe('Name', TipMessagingThread.Main)]
   ```
   Para enviar uma mensagem identficada por um nome, basta informá-la no próprio Post:
   ```delphi  

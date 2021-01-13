@@ -81,7 +81,7 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
 
   To receive messages with name identity, just declare the name in method attribute:
   ```delphi  
-    [Subscribe(TipMessagingThread.Main, 'Name')]
+    [Subscribe('Name', TipMessagingThread.Main)]
   ```
   To send messages with name identity, just inform it in the Post call:
   ```delphi  
