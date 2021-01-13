@@ -88,6 +88,20 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
     GMessaging.Post('Name', LMessage);
   ```
   Nota: O nome explícito é case-insensitive.
-   
+
+  #### Tipo de invocação (thread)
+  No atributo [Subscribe], você pode determinar como o método que está recebendo a mensagem será executado:
+  | Tipo | Descrição |
+  | --- | --- |
+  | TipMessagingThread.Posting | Este é o padrão, o método inscrito será invocado no mesmo thread em que a mensagem foi postada |
+  | TipMessagingThread.Main | O método inscrito será invocado no main thread |
+  | TipMessagingThread.Async | O método inscrito será invocado de forma assíncrona, isto é, em um thread anônimo, não sendo o mesmo em que a mensagem foi postada |
+  | TipMessagingThread.Background | Se a mensagem for postada do main thread, o método inscrito será invocado de forma assíncrona em um thread anônimo, não sendo o mesmo em que a mensagem foi postada. Mas se a mensagem foi postada em um thread que não seja o main thread, o método inscrito será invocado no mesmo thread em que a mensagem foi postada |
+  
+  #### Considerações
+  A ideia do sistema é apenas repassar mensagens, avisos, contendo ou não informações, então tenha em mente que não é aconselhável colocar grandes códigos ou códigos com paradas (waitfor) dentro dos métodos inscritos para escutar mensagens, pois isso afetaria diretamente a performance do sistema, mesmo nos modos assíncronos.
+
+  Uma outra consideração é apenas um lembrete da forma correta de se usar TTask do delphi. Nunca use o TTask para executar métodos com paradas (eventos, semáforos, ...), ele não foi feito para isso, o objetivo dele é de executar tarefas contínuas e mais simples, se sua tarefa for mais complexa o correto é usar um TThread. Estamos alertando sobre isso, pois o nosso sistema usa o TTask do delphi para aumentar a performance principalmente em ambientes mais complexo além de economizar recursos, e se você usar o TTask de forma incorreta em seus códigos poderá fazer com que sua aplicação trave ao enviar uma mensagem.
+
 # Licença
 O iPub Messaging é licenciado pelo MIT e o arquivo de licença está incluído nesta pasta.

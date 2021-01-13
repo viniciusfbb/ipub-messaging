@@ -88,6 +88,20 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
     GMessaging.Post('Name', LMessage);
   ```
   Note: The explicit name is case-insensitive.
-   
+
+  #### Thread invoke kind
+  In [Subscribe] attribute, you can determine how the method receiving a message will be executed:
+  | Kind | Description |
+  | --- | --- |
+  | TipMessagingThread.Posting | The default, the subscriber method will be invoked in the same posting thread where Post was called |
+  | TipMessagingThread.Main | The subscriber method will be invoked in the main thread |
+  | TipMessagingThread.Async | The subscriber method will be invoked asynchronously in a new anonnymous thread other than the posting thread |
+  | TipMessagingThread.Background | If the posting thread is the main thread, the subscriber method will be invoked asynchronously in a new anonnymous thread, other than the posting thread. If the posting thread is not the main thread, the subscriber method will be invoked synchronously in the same posting thread |
+  
+  #### Considerations
+  The idea of the system is just to forward messages, notices, containing or not information, so keep in mind that it is not advisable to place large codes or codes with stops (waitfor) within the subscribed methods to listen to messages, as this would directly affect the performance of the system, even in asynchronous modes.
+
+  Another consideration is just a reminder of the correct way to use Delphi's TTask. Never use TTask to execute methods with stops (events, semaphore, ...), it was not made for that, its goal is to perform continuous and simpler tasks, if your task is more complex the correct thing is to use a TThread . We are warning you about this, because our system uses delphi's TTask to increase performance mainly in more complex environments in addition to saving resources, and if you use TTask incorrectly in your codes you can cause your application to freeze when sending a message.
+
 # License
 The iPub Messaging is licensed under MIT, and the license file is included in this folder.
