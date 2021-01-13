@@ -752,8 +752,8 @@ begin
           while (LStartIndex > 0) and (FSubscriptionsComparer.Compare(LSubscriptions.List[LStartIndex - 1], LSubscriptionToFind) = 0) do
             Dec(LStartIndex);
           LCount := (LIndex - LStartIndex) + 1;
-          while (LStartIndex + LCount + 1 < LSubscriptions.Count) and
-            (FSubscriptionsComparer.Compare(LSubscriptions.List[LStartIndex + LCount + 1], LSubscriptionToFind) = 0) do
+          while (LStartIndex + LCount < LSubscriptions.Count) and
+            (FSubscriptionsComparer.Compare(LSubscriptions.List[LStartIndex + LCount], LSubscriptionToFind) = 0) do
           begin
             Inc(LCount);
           end;
