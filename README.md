@@ -101,7 +101,7 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
   #### Considerations
   The idea of the system is just to forward messages, notices, containing or not information, so keep in mind that it is not advisable to place large codes or codes with stops (waitfor) within the subscribed methods to listen to messages, as this would directly affect the performance of the system, even in asynchronous modes.
 
-  Another consideration is just a reminder of the correct way to use Delphi's TTask. Never use TTask to execute methods with stops (events, semaphore, ...), it was not made for that, its goal is to perform continuous and simpler tasks, if your task is more complex the correct thing is to use a TThread . We are warning you about this, because our system uses delphi's TTask to increase performance mainly in more complex environments in addition to saving resources, and if you use TTask incorrectly in your codes you can cause your application to freeze when sending a message.
+  Another consideration is just a reminder of the correct way to use Delphi's TTask. Never use TTask to execute methods with stops (events, semaphores, ...), it was not made for that, its goal is to perform continuous and simpler tasks, if your task is more complex the correct thing is to use a TThread. We are warning you about this, because our system uses delphi's TTask to increase performance mainly in more complex environments in addition to saving resources, and if you use TTask incorrectly in your codes you can cause your application to freeze when sending a message.
 
 # License
 The iPub Messaging is licensed under MIT, and the license file is included in this folder.
