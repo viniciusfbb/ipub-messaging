@@ -17,7 +17,7 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
  Veja a comparação em um ambiente com 1000 objetos:
 |  | Subscribe | Post | Unsubscribe |
 | --- | --- | --- | --- |
-| iPub | 1.6368 ms | 1.3119 ms | 1.7666 ms |
+| iPub | 1.6368 ms | 0.1215 ms | 1.7666 ms |
 | DEB | 9.8832 ms | 2.0293 ms | 4.0022 ms |
 
 ## Uso

@@ -17,7 +17,7 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
  See the comparison in an environment with 1000 objects:
 |  | Subscribe | Post | Unsubscribe |
 | --- | --- | --- | --- |
-| iPub | 1.6368 ms | 1.3119 ms | 1.7666 ms |
+| iPub | 1.6368 ms | 0.1215 ms | 1.7666 ms |
 | DEB | 9.8832 ms | 2.0293 ms | 4.0022 ms |
 
 ## Using
