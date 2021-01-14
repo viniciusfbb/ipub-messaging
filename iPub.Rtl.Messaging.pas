@@ -31,16 +31,24 @@ type
   { TipMessaging }
 
   TipMessaging = class
+  protected
+    type
+      TipSubscriberMethod<T> = procedure(const AMessage: T) of object;
   strict protected
     procedure Post(const AMessage: IInterface; const ATypeInfo: PTypeInfo; const AMessageName: string); overload; virtual; abstract;
+    procedure SubscribeMethod(const AMessageName: string; const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod; const AMessagingThread: TipMessagingThread); overload; virtual; abstract;
+    function TryUnsubscribeMethod(const AMessageName: string; const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod): Boolean; overload; virtual; abstract;
   public
     function IsSubscribed(const ASubscriber: TObject): Boolean; virtual; abstract;
-    procedure Post(const AMessageName, AMessage: string); overload; virtual; abstract;     
+    procedure Post(const AMessageName, AMessage: string); overload; virtual; abstract;
     procedure Post<T: IInterface>(AMessage: T); overload;
     procedure Post<T: IInterface>(const AMessageName: string; AMessage: T); overload;
-    procedure Subscribe(const ASubscriber: TObject); virtual; abstract;     
+    procedure Subscribe(const ASubscriber: TObject); overload; virtual; abstract;
+    procedure SubscribeMethod<T>(const AMessageName: string; const AMethod: TipSubscriberMethod<T>; const AMessagingThread: TipMessagingThread = TipMessagingThread.Posting); overload;
     function TryUnsubscribe(const ASubscriber: TObject): Boolean; virtual; abstract;
+    function TryUnsubscribeMethod<T>(const AMessageName: string; const AMethod: TipSubscriberMethod<T>): Boolean; overload;
     procedure Unsubscribe(const ASubscriber: TObject);
+    procedure UnsubscribeMethod<T>(const AMessageName: string; const AMethod: TipSubscriberMethod<T>);
   end;
 
 var
@@ -63,10 +71,17 @@ type
   TRttiUtils = class sealed
   strict private
     class var FContext: TRttiContext;
+    class var FGUIDCacheMap: TDictionary<PTypeInfo, string>;
+    {$IF CompilerVersion >= 34.0}
+    class var FGUIDCacheSync: TLightweightMREW;
+    {$ELSE}
+    class var FGUIDCacheSync: TCriticalSection;
+    {$ENDIF}
     class constructor Create;
     class destructor Destroy;
+    class function GetGUID(const ATypeInfo: PTypeInfo): TGUID; static;
   public
-    class function GetGUID(const AInterface: IInterface; const ATypeInfo: PTypeInfo): TGUID; static;
+    class function GetGUIDString(const ATypeInfo: PTypeInfo): string; static; inline;
     class function HasAttribute<T: TCustomAttribute>(const ARttiMember: TRttiMember; out AAttribute: T): Boolean; static;
     class property Context: TRttiContext read FContext;
   end;
@@ -77,13 +92,35 @@ type
   strict private
     FMessageFullName: string;
     FMessagingThread: TipMessagingThread;
-    FRttiMethod: TRttiMethod;
   public
-    constructor Create(const ARttiMethod: TRttiMethod;
-      const AMessagingThread: TipMessagingThread; const AMessageFullName: string);
+    constructor Create(const AMessagingThread: TipMessagingThread;
+      const AMessageFullName: string);
     property MessageFullName: string read FMessageFullName;
     property MessagingThread: TipMessagingThread read FMessagingThread;
+  end;
+
+  { TSubscriberRttiMethod }
+
+  TSubscriberRttiMethod = class(TSubscriberMethod)
+  strict private
+    FRttiMethod: TRttiMethod;
+  public
+    constructor Create(const AMessagingThread: TipMessagingThread;
+      const AMessageFullName: string; const ARttiMethod: TRttiMethod);
     property RttiMethod: TRttiMethod read FRttiMethod;
+  end;
+
+  { TSubscriberObjectMethod }
+
+  TSubscriberObjectMethod = class(TSubscriberMethod)
+  strict private
+    FMethod: TMethod;
+    FTypeKind: TTypeKind;
+  public
+    constructor Create(const AMessagingThread: TipMessagingThread;
+      const AMessageFullName: string; const AMethod: TMethod; const ATypeKind: TTypeKind);
+    property Method: TMethod read FMethod;
+    property TypeKind: TTypeKind read FTypeKind;
   end;
 
   { ISubscription }
@@ -91,11 +128,13 @@ type
   ISubscription = interface
     procedure Cancel;
     function GetMessagingThread: TipMessagingThread;
-    function GetSubscriber: TObject;
+    function GetMethodCode: Pointer;
+    function GetSubscriber: Pointer;
     procedure Invoke(const AArgument: TValue);
     procedure WaitForInvoke;
     property MessagingThread: TipMessagingThread read GetMessagingThread;
-    property Subscriber: TObject read GetSubscriber;  
+    property Subscriber: Pointer read GetSubscriber;
+    property MethodCode: Pointer read GetMethodCode;
   end;
 
   { TSubscription }
@@ -104,13 +143,15 @@ type
   strict private
     FCanceled: Boolean;
     FCriticalSection: TCriticalSection;
+    FMethodCode: Pointer;
     FMessagingThread: TipMessagingThread;
-    FSubscriber: TObject;
+    FSubscriber: Pointer;
     FSubscriberMethod: TSubscriberMethod;
     function GetMessagingThread: TipMessagingThread;
-    function GetSubscriber: TObject;
+    function GetMethodCode: Pointer;
+    function GetSubscriber: Pointer;
   public
-    constructor Create(const ASubscriber: TObject; const ASubscriberMethod: TSubscriberMethod);
+    constructor Create(const ASubscriber: Pointer; const ASubscriberMethod: TSubscriberMethod);
     destructor Destroy; override;
     procedure Cancel;
     procedure Invoke(const AArgument: TValue);
@@ -152,10 +193,13 @@ type
     FMessageSubscriptions: TObjectDictionary<string, TList<ISubscription>>;
     FSubscriberMethodsFinder: TSubscriberMethodsFinder;
     FSubscribersMap: TDictionary<TObject, string>;
+    FSubscriberMethodsMap: TDictionary<string, string>;
     FSubscriptionsComparer: IComparer<ISubscription>;
     procedure DoPost(const AMessageFullName: string; const AArgument: TValue);
   strict protected
     procedure Post(const AMessage: IInterface; const ATypeInfo: PTypeInfo; const AMessageName: string); overload; override;
+    procedure SubscribeMethod(const AMessageName: string; const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod; const AMessagingThread: TipMessagingThread); overload; override;
+    function TryUnsubscribeMethod(const AMessageName: string; const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod): Boolean; overload; override;
   public
     constructor Create;
     destructor Destroy; override;
@@ -206,8 +250,8 @@ begin
     raise EipMessaging.Create('Invalid type of message');
   Post(AMessage, LTypeInfo, AMessageName);
 end;
-   
-// The interface parameter cannot have const because sometimes you can create 
+
+// The interface parameter cannot have const because sometimes you can create
 // the interface in post call parameter, then we need to increment the reference
 procedure TipMessaging.Post<T>(AMessage: T);
 var
@@ -219,10 +263,43 @@ begin
   Post(AMessage, LTypeInfo, '');
 end;
 
+procedure TipMessaging.SubscribeMethod<T>(const AMessageName: string;
+  const AMethod: TipSubscriberMethod<T>; const AMessagingThread: TipMessagingThread);
+var
+  LTypeInfo: PTypeInfo;
+begin
+  LTypeInfo := TypeInfo(T);
+  if not (LTypeInfo.Kind in [TTypeKind.tkInterface, TTypeKind.tkUString]) then
+    raise EipMessaging.Create('Invalid type of message');
+  if (LTypeInfo.Kind = TTypeKind.tkUString) and AMessageName.IsEmpty then
+    raise EipMessaging.Create('Invalid name');
+  SubscribeMethod(AMessageName, LTypeInfo, TMethod(AMethod), AMessagingThread);
+end;
+
+function TipMessaging.TryUnsubscribeMethod<T>(const AMessageName: string;
+  const AMethod: TipSubscriberMethod<T>): Boolean;
+var
+  LTypeInfo: PTypeInfo;
+begin
+  LTypeInfo := TypeInfo(T);
+  if not (LTypeInfo.Kind in [TTypeKind.tkInterface, TTypeKind.tkUString]) then
+    raise EipMessaging.Create('Invalid type of message');
+  if (LTypeInfo.Kind = TTypeKind.tkUString) and AMessageName.IsEmpty then
+    raise EipMessaging.Create('Invalid name');
+  Result := TryUnsubscribeMethod(AMessageName, LTypeInfo, TMethod(AMethod));
+end;
+
 procedure TipMessaging.Unsubscribe(const ASubscriber: TObject);
 begin
   if not TryUnsubscribe(ASubscriber) then
     raise EipMessaging.CreateFmt('The object %s is not subscribed', [ASubscriber.QualifiedClassName]);
+end;
+
+procedure TipMessaging.UnsubscribeMethod<T>(const AMessageName: string;
+  const AMethod: TipSubscriberMethod<T>);
+begin
+  if not TryUnsubscribeMethod<T>(AMessageName, AMethod) then
+    raise EipMessaging.Create('The method is not subscribed');
 end;
 
 { TRttiUtils }
@@ -230,15 +307,22 @@ end;
 class constructor TRttiUtils.Create;
 begin
   FContext := TRttiContext.Create;
+  FGUIDCacheMap := TDictionary<PTypeInfo, string>.Create;
+  {$IF CompilerVersion < 34.0}
+  FGUIDCacheSync := TCriticalSection.Create;
+  {$ENDIF}
 end;
 
 class destructor TRttiUtils.Destroy;
 begin
+  {$IF CompilerVersion < 34.0}
+  FGUIDCacheSync.Free;
+  {$ENDIF}
+  FGUIDCacheMap.Free;
   FContext.Free;
 end;
 
-class function TRttiUtils.GetGUID(const AInterface: IInterface;
-  const ATypeInfo: PTypeInfo): TGUID;
+class function TRttiUtils.GetGUID(const ATypeInfo: PTypeInfo): TGUID;
 var
   LRttiType: TRttiInterfaceType;
 begin
@@ -246,6 +330,40 @@ begin
   if not (TIntfFlag.ifHasGuid in LRttiType.IntfFlags)  then
     raise Exception.CreateFmt('Cannot possible to get the guid of "%s"', [LRttiType.Name, LRttiType.Name]);
   Result := LRttiType.GUID;
+end;
+
+class function TRttiUtils.GetGUIDString(const ATypeInfo: PTypeInfo): string;
+begin
+  {$IF CompilerVersion >= 34.0}
+  FGUIDCacheSync.BeginRead;
+  {$ELSE}
+  FGUIDCacheSync.Enter;
+  {$ENDIF}
+  try
+    if FGUIDCacheMap.TryGetValue(ATypeInfo, Result) then
+      Exit;
+  finally
+    {$IF CompilerVersion >= 34.0}
+    FGUIDCacheSync.EndRead;
+    {$ELSE}
+    FGUIDCacheSync.Leave;
+    {$ENDIF}
+  end;
+  Result := GetGUID(ATypeInfo).ToString.ToLower;
+  {$IF CompilerVersion >= 34.0}
+  FGUIDCacheSync.BeginWrite;
+  {$ELSE}
+  FGUIDCacheSync.Enter;
+  {$ENDIF}
+  try
+    FGUIDCacheMap.TryAdd(ATypeInfo, Result);
+  finally
+    {$IF CompilerVersion >= 34.0}
+    FGUIDCacheSync.EndWrite;
+    {$ELSE}
+    FGUIDCacheSync.Leave;
+    {$ENDIF}
+  end;
 end;
 
 class function TRttiUtils.HasAttribute<T>(const ARttiMember: TRttiMember;
@@ -267,13 +385,33 @@ end;
 
 { TSubscriberMethod }
 
-constructor TSubscriberMethod.Create(const ARttiMethod: TRttiMethod;
-  const AMessagingThread: TipMessagingThread; const AMessageFullName: string);
+constructor TSubscriberMethod.Create(const AMessagingThread: TipMessagingThread;
+  const AMessageFullName: string);
 begin
   inherited Create;
-  FRttiMethod := ARttiMethod;
   FMessagingThread := AMessagingThread;
   FMessageFullName := AMessageFullName.ToLower;
+end;
+
+{ TSubscriberRttiMethod }
+
+constructor TSubscriberRttiMethod.Create(
+  const AMessagingThread: TipMessagingThread; const AMessageFullName: string;
+  const ARttiMethod: TRttiMethod);
+begin
+  inherited Create(AMessagingThread, AMessageFullName);
+  FRttiMethod := ARttiMethod;
+end;
+
+{ TSubscriberObjectMethod }
+
+constructor TSubscriberObjectMethod.Create(
+  const AMessagingThread: TipMessagingThread; const AMessageFullName: string;
+  const AMethod: TMethod; const ATypeKind: TTypeKind);
+begin
+  inherited Create(AMessagingThread, AMessageFullName);
+  FMethod := AMethod;
+  FTypeKind := ATypeKind;
 end;
 
 { TSubscription }
@@ -283,7 +421,7 @@ begin
   FCanceled := True;
 end;
 
-constructor TSubscription.Create(const ASubscriber: TObject;
+constructor TSubscription.Create(const ASubscriber: Pointer;
   const ASubscriberMethod: TSubscriberMethod);
 begin
   inherited Create;
@@ -293,6 +431,8 @@ begin
   begin
     FMessagingThread := FSubscriberMethod.MessagingThread;
     FCriticalSection := TCriticalSection.Create;
+    if ASubscriberMethod is TSubscriberObjectMethod then
+      FMethodCode := TSubscriberObjectMethod(ASubscriberMethod).Method.Code;
   end;
 end;
 
@@ -300,6 +440,9 @@ destructor TSubscription.Destroy;
 begin
   if Assigned(FCriticalSection) then
     FCriticalSection.Free;
+  // If the FSubscriberMethod is not a rtti method the subscription will be responsible to release it
+  if Assigned(FMethodCode) then
+    FSubscriberMethod.Free;
   inherited;
 end;
 
@@ -308,7 +451,12 @@ begin
   Result := FMessagingThread;
 end;
 
-function TSubscription.GetSubscriber: TObject;
+function TSubscription.GetMethodCode: Pointer;
+begin
+  Result := FMethodCode;
+end;
+
+function TSubscription.GetSubscriber: Pointer;
 begin
   Result := FSubscriber;
 end;
@@ -322,12 +470,25 @@ begin
     if not FCanceled then
     begin
       try
-        FSubscriberMethod.RttiMethod.Invoke(FSubscriber, [AArgument]);
+        if FSubscriberMethod is TSubscriberRttiMethod then
+          TSubscriberRttiMethod(FSubscriberMethod).RttiMethod.Invoke(TObject(FSubscriber), [AArgument])
+        else
+        begin
+          case TSubscriberObjectMethod(FSubscriberMethod).TypeKind of
+            TTypeKind.tkUString:
+              TipMessaging.TipSubscriberMethod<string>(TSubscriberObjectMethod(FSubscriberMethod).Method)(AArgument.AsString);
+            TTypeKind.tkInterface:
+              TipMessaging.TipSubscriberMethod<IInterface>(TSubscriberObjectMethod(FSubscriberMethod).Method)(AArgument.AsInterface);
+          end;
+        end;
       except
         on E: Exception do
         begin
-          E.Message := E.Message + Format(' Error invoking subscribed messaging method %s in class %s',
-            [FSubscriberMethod.RttiMethod.Name, FSubscriber.QualifiedClassName]);
+          E.Message := E.Message + ' Error invoking subscribed messaging method';
+          if FSubscriberMethod is TSubscriberRttiMethod then
+            E.Message := E.Message + Format(' %s in class %s', [TSubscriberRttiMethod(FSubscriberMethod).RttiMethod.Name, TObject(FSubscriber).QualifiedClassName])
+          else
+            E.Message := E.Message + Format(' %s', [TSubscriberObjectMethod(FSubscriberMethod).MessageFullName]);
           raise;
         end;
       end;
@@ -495,7 +656,7 @@ begin
         TTypeKind.tkInterface: LMessageFullName := TRttiInterfaceType(LRttiMethods[I].GetParameters[0].ParamType).GUID.ToString + LMessageFullName;
       end;
       SetLength(LOwnMethods, Length(LOwnMethods) + 1);
-      LOwnMethods[High(LOwnMethods)] := TSubscriberMethod.Create(LRttiMethods[I], LAttribute.MessagingThread, LMessageFullName);
+      LOwnMethods[High(LOwnMethods)] := TSubscriberRttiMethod.Create(LAttribute.MessagingThread, LMessageFullName, LRttiMethods[I]);
     end;
   end;
 
@@ -513,14 +674,28 @@ begin
   inherited Create;
   FCriticalSection := TCriticalSection.Create;
   FMessageSubscriptions := TObjectDictionary<string, TList<ISubscription>>.Create([doOwnsValues]);
-  FSubscriberMethodsFinder := TSubscriberMethodsFinder.Create;  
+  FSubscriberMethodsFinder := TSubscriberMethodsFinder.Create;
   FSubscribersMap := TDictionary<TObject, string>.Create;
+  FSubscriberMethodsMap := TDictionary<string, string>.Create;
   FSubscriptionsComparer := TComparer<ISubscription>.Construct(
     function(const ALeft, ARight: ISubscription): Integer
+    var
+      LLeft, LRight: UInt64;
     begin
-      if NativeUInt(ALeft.Subscriber) = NativeUInt(ARight.Subscriber) then
-        Result := 0
-      else if NativeUInt(ALeft.Subscriber) < NativeUInt(ARight.Subscriber) then
+      LLeft := NativeUInt(ALeft.Subscriber);
+      LRight := NativeUInt(ARight.Subscriber);
+      if LLeft = LRight then
+      begin
+        LLeft := NativeUInt(ALeft.MethodCode);
+        LRight := NativeUInt(ARight.MethodCode);
+        if LLeft = LRight then
+          Result := 0
+        else if LLeft < LRight then
+          Result := -1
+        else
+          Result := 1;
+      end
+      else if LLeft < LRight then
         Result := -1
       else
         Result := 1;
@@ -568,18 +743,19 @@ destructor TipMessageManager.Destroy;
 
 begin
   // It is more than a good practice to unsubscribe, we will force it to avoid problems
-  if FSubscribersMap.Count > 0 then
+  if (FSubscribersMap.Count > 0) or (FSubscriberMethodsMap.Count > 0) then
   begin
     FCriticalSection.Enter;
     try
-      raise EipMessaging.CreateFmt('Found %d object(s) that haven''t unsubscribed: %s', [FSubscribersMap.Count,
-        _GetSubscribersClassName(FSubscribersMap.Values.ToArray)]);
+      raise EipMessaging.CreateFmt('Found %d object(s)/method(s) that haven''t unsubscribed: %s', [FSubscribersMap.Count + FSubscriberMethodsMap.Count,
+        _GetSubscribersClassName(FSubscribersMap.Values.ToArray + FSubscriberMethodsMap.Values.ToArray)]);
     finally
       FCriticalSection.Leave;
     end;
   end;
   FMessageSubscriptions.Free;
   FSubscriberMethodsFinder.Free;
+  FSubscriberMethodsMap.Free;
   FSubscribersMap.Free;
   FCriticalSection.Free;
   inherited;
@@ -635,6 +811,7 @@ var
 begin
   if AMessageFullName.IsEmpty then
     raise EipMessaging.Create('Invalid message name');
+
   LMessageFullName := AMessageFullName.ToLower;
   FCriticalSection.Enter;
   try
@@ -669,7 +846,7 @@ end;
 procedure TipMessageManager.Post(const AMessage: IInterface;
   const ATypeInfo: PTypeInfo; const AMessageName: string);
 begin
-  DoPost(TRttiUtils.GetGUID(AMessage, ATypeInfo).ToString + AMessageName, AMessage as TObject);
+  DoPost(TRttiUtils.GetGUIDString(ATypeInfo) + AMessageName, AMessage as TObject);
 end;
 
 procedure TipMessageManager.Post(const AMessageName, AMessage: string);
@@ -711,6 +888,53 @@ begin
       LSubscriptions.BinarySearch(LSubscription, LIndex);
       LSubscriptions.Insert(LIndex, LSubscription);
     end;
+  finally
+    FCriticalSection.Leave;
+  end;
+end;
+
+procedure TipMessageManager.SubscribeMethod(const AMessageName: string;
+  const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod;
+  const AMessagingThread: TipMessagingThread);
+var
+  LSubscriberMethod: TSubscriberMethod;
+  LSubscription: ISubscription;
+  LSubscriptions: TList<ISubscription>;
+  LMessageFullName: string;
+  LMethodId: string;
+  LMethodName: string;
+  LIndex: Integer;
+begin
+  if AMethod.Code = nil then
+    raise EipMessaging.Create('Invalid method');
+  if AMethodArgumentTypeInfo.Kind = TTypeKind.tkInterface then
+    LMessageFullName := TRttiUtils.GetGUIDString(AMethodArgumentTypeInfo) + AMessageName
+  else
+    LMessageFullName := '{string}' + AMessageName;
+  LMessageFullName := LMessageFullName.ToLower;
+  LMethodId := Format('%s.%s.%s', [NativeUInt(AMethod.Code).ToHexString(SizeOf(Pointer) * 2),
+    NativeUInt(AMethod.Data).ToHexString(SizeOf(Pointer) * 2), LMessageFullName]);
+  LMethodName := TObject(AMethod.Data).MethodName(AMethod.Code);
+  if LMethodName.IsEmpty then
+    LMethodName := '<unknown>';
+  LMethodName := TObject(AMethod.Data).ClassName + '.' + LMethodName + '.' + LMessageFullName;
+  FCriticalSection.Enter;
+  try
+    if FSubscriberMethodsMap.ContainsKey(LMethodId) then
+      raise EipMessaging.CreateFmt('The method %s is already subscribed', [LMethodName]);
+    FSubscriberMethodsMap.Add(LMethodId, LMethodName);
+
+    LSubscriberMethod := TSubscriberObjectMethod.Create(AMessagingThread, LMethodName, AMethod, AMethodArgumentTypeInfo.Kind);
+    LSubscription := TSubscription.Create(AMethod.Data, LSubscriberMethod);
+
+    if not FMessageSubscriptions.TryGetValue(LMessageFullName, LSubscriptions) then
+    begin
+      LSubscriptions := TList<ISubscription>.Create(FSubscriptionsComparer);
+      FMessageSubscriptions.Add(LMessageFullName, LSubscriptions);
+    end;
+    if LSubscriptions.BinarySearch(LSubscription, LIndex) then
+      raise EipMessaging.CreateFmt('Unexpected error subscribing %s', [LMethodName]);
+    LSubscriptions.Insert(LIndex, LSubscription);
   finally
     FCriticalSection.Leave;
   end;
@@ -788,6 +1012,58 @@ begin
   finally
     if Assigned(LCancelSubscriptions) then
       LCancelSubscriptions.Free;
+  end;
+  Result := True;
+end;
+
+function TipMessageManager.TryUnsubscribeMethod(const AMessageName: string;
+  const AMethodArgumentTypeInfo: PTypeInfo; const AMethod: TMethod): Boolean;
+var
+  LSubscriptions: TList<ISubscription>;
+  LCancelSubscription: ISubscription;
+  LSubscriptionToFind: ISubscription;
+  LSubscriberMethod: TSubscriberMethod;
+  LMessageFullName: string;
+  LMethodId: string;
+  LIndex: Integer;
+begin
+  if AMethod.Code = nil then
+    raise EipMessaging.Create('Invalid method');
+  if AMethodArgumentTypeInfo.Kind = TTypeKind.tkInterface then
+    LMessageFullName := TRttiUtils.GetGUIDString(AMethodArgumentTypeInfo) + AMessageName
+  else
+    LMessageFullName := '{string}' + AMessageName;
+  LMessageFullName := LMessageFullName.ToLower;
+  LMethodId := NativeUInt(AMethod.Code).ToHexString(SizeOf(Pointer) * 2) + '.' +
+    NativeUInt(AMethod.Data).ToHexString(SizeOf(Pointer) * 2) + '.' + LMessageFullName;
+  LCancelSubscription := nil;
+  LSubscriberMethod := TSubscriberObjectMethod.Create(TipMessagingThread.Posting, '', AMethod, AMethodArgumentTypeInfo.Kind);
+  LSubscriptionToFind := TSubscription.Create(AMethod.Data, LSubscriberMethod);
+  FCriticalSection.Enter;
+  try
+    if not FSubscriberMethodsMap.ContainsKey(LMethodId) then
+      Exit(False);
+    FSubscriberMethodsMap.Remove(LMethodId);
+
+    if not FMessageSubscriptions.TryGetValue(LMessageFullName, LSubscriptions) then
+      Exit(False);
+    if not LSubscriptions.BinarySearch(LSubscriptionToFind, LIndex) then
+      Exit(False);
+
+    // Check cancel need, just when subscription is executing
+    if TSubscription(LSubscriptions.List[LIndex]).FRefCount <> 1 then
+      LCancelSubscription := LSubscriptions[LIndex];
+    LSubscriptions.Delete(LIndex);
+    if LSubscriptions.Count = 0 then
+      FMessageSubscriptions.Remove(LMessageFullName);
+  finally
+    FCriticalSection.Leave;
+  end;
+  // Cancel subscriptions that is executing
+  if Assigned(LCancelSubscription) then
+  begin
+    LCancelSubscription.Cancel;
+    LCancelSubscription.WaitForInvoke;
   end;
   Result := True;
 end;

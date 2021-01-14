@@ -97,7 +97,17 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
   | TipMessagingThread.Main | The subscriber method will be invoked in the main thread |
   | TipMessagingThread.Async | The subscriber method will be invoked asynchronously in a new anonnymous thread other than the posting thread |
   | TipMessagingThread.Background | If the posting thread is the main thread, the subscriber method will be invoked asynchronously in a new anonnymous thread, other than the posting thread. If the posting thread is not the main thread, the subscriber method will be invoked synchronously in the same posting thread |
-  
+
+  #### Manually subscribe a method at run time
+  Although the use of the [Subscribe] attribute to subscribe a method is very practical, it is limited because you have to define the name of the message before compilation, in design time, and sometimes it is really useful to define the name of the messages in runtime. An example, a message for a product that has been changed 'product_105346_changed', that name of that message I can only define at run time, so we added the option to subscribe / unsubscribe a method to listen to a message manually:
+  ```delphi
+    GMessaging.SubscribeMethod<string>('product_105346_changed', Self.OnProductChanged, TipMessagingThread.Posting);
+    GMessaging.UnsubscribeMethod<string>('product_105346_changed', Self.OnProductChanged);
+  ```
+  These two manual methods are independent of the Subscribe / Unsubscribe methods. You can merge the same class with subscribed methods automatically using the [Subscribe] attribute and calling Subscribe / Unsubscribe, and at the same time in this class having methods that you added manually using SubscribeMethod / UnsubscribeMethod.
+
+  Another benefit of manually enrolling methods is that they do not restrict to public methods only.
+
   #### Considerations
   The idea of the system is just to forward messages, notices, containing or not information, so keep in mind that it is not advisable to place large codes or codes with stops (waitfor) within the subscribed methods to listen to messages, as this would directly affect the performance of the system, even in asynchronous modes.
 

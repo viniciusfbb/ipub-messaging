@@ -97,7 +97,17 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
   | TipMessagingThread.Main | O método inscrito será invocado no main thread |
   | TipMessagingThread.Async | O método inscrito será invocado de forma assíncrona, isto é, em um thread anônimo, não sendo o mesmo em que a mensagem foi postada |
   | TipMessagingThread.Background | Se a mensagem for postada do main thread, o método inscrito será invocado de forma assíncrona em um thread anônimo, não sendo o mesmo em que a mensagem foi postada. Mas se a mensagem foi postada em um thread que não seja o main thread, o método inscrito será invocado no mesmo thread em que a mensagem foi postada |
-  
+
+  #### Inscrever manualmente um método em tempo de execução
+  Embora o uso do atributo [Subscribe] para inscrever um método seja muito prático, ele acaba sendo limitado pois você tem que definir o nome da mensagem antes da compilação, em design time, e algumas vezes é realmente útil definir o nome das mensagens em tempo de execução. Um exemplo, uma mensagem de um produto que foi alterado 'product_105346_changed', esse nome dessa mensagem eu só consigo definir em tempo de execução, por isso adicionamos a opção de inscrever/desinscrever um método para escutar uma mensagem manualmente:
+  ```delphi
+    GMessaging.SubscribeMethod<string>('product_105346_changed', Self.OnProductChanged, TipMessagingThread.Posting);
+    GMessaging.UnsubscribeMethod<string>('product_105346_changed', Self.OnProductChanged);
+  ```
+  Estes dois métodos manuais são independente dos métodos Subscribe/Unsubscribe. Você pode mesclar uma mesma classe com métodos inscritos automaticamente usando o atributo [Subscribe] e chamando o Subscribe/Unsubscribe, e ao mesmo tempo nesta classe ter métodos que você adicionou manualmente usando o SubscribeMethod/UnsubscribeMethod.  
+
+  Outro benefício de inscrever métodos manualmente é o fato de não restringir a apenas métodos públicos.
+
   #### Considerações
   A ideia do sistema é apenas repassar mensagens, avisos, contendo ou não informações, então tenha em mente que não é aconselhável colocar grandes códigos ou códigos com paradas (waitfor) dentro dos métodos inscritos para escutar mensagens, pois isso afetaria diretamente a performance do sistema, mesmo nos modos assíncronos.
 
