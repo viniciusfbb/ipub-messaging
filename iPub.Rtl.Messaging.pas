@@ -772,6 +772,9 @@ procedure TipMessageManager.DoPost<T>(const AMessageFullName: string;
 var
   LSubscriptionsList: TList<ISubscription>;
   LSubscriptions: TArray<ISubscription>;
+  LSubscription: ISubscription;
+  LIsMainThread: Boolean;
+  LIsMainThreadKnown: Boolean;
   I: Integer;
 begin
   if AMessageFullName.IsEmpty then
@@ -786,54 +789,67 @@ begin
     FCriticalSection.Leave;
   end;
 
+  LIsMainThread := False;
+  LIsMainThreadKnown := False;
+
   for I := 0 to Length(LSubscriptions)-1 do
   begin
-    // The subscriber method will be invoked in the same posting thread where Post was called
-    if LSubscriptions[I].MessagingThread = TipMessagingThread.Posting then
-      LSubscriptions[I].Invoke(@AArgument)
-    else
-      DoPostWithAnonymousProc<T>(LSubscriptions[I], AArgument);
+    case LSubscriptions[I].MessagingThread of
+      // The subscriber method will be invoked in the same posting thread where Post was called
+      TipMessagingThread.Posting: LSubscriptions[I].Invoke(@AArgument);
+
+      // The subscriber method will be invoked in the main thread
+      TipMessagingThread.Main:
+        begin
+          if not LIsMainThreadKnown then
+          begin
+            LIsMainThread := MainThreadID = TThread.CurrentThread.ThreadID;
+            LIsMainThreadKnown := True;
+          end;
+          if LIsMainThread then
+            LSubscriptions[I].Invoke(@AArgument)
+          else
+            DoPostWithAnonymousProc<T>(LSubscriptions[I], AArgument);
+        end;
+
+      // The subscriber method will be invoked asynchronously in a new anonnymous thread other than the posting thread
+      TipMessagingThread.Async: DoPostWithAnonymousProc<T>(LSubscriptions[I], AArgument);
+
+      // If the posting thread is the main thread, the subscriber method will be invoked asynchronously in a new
+      // anonnymous thread, other than the posting thread. If the posting thread is not the main thread, the subscriber
+      // method will be invoked synchronously in the same posting thread
+      TipMessagingThread.Background:
+        begin
+          if not LIsMainThreadKnown then
+          begin
+            LIsMainThread := MainThreadID = TThread.CurrentThread.ThreadID;
+            LIsMainThreadKnown := True;
+          end;
+          if LIsMainThread then
+            DoPostWithAnonymousProc<T>(LSubscriptions[I], AArgument)
+          else
+            LSubscriptions[I].Invoke(@AArgument);
+        end;
+    end;
   end;
 end;
 
-// Don't remove this method. This is to force the refcount +1 before call annonymous proc.
+// Don't remove this method. This is to force the refcount +1 of subscription before call annonymous proc.
 procedure TipMessageManager.DoPostWithAnonymousProc<T>(
   ASubscription: ISubscription; const AArgument: T);
 begin
-  case ASubscription.MessagingThread of
-    // The subscriber method will be invoked in the main thread
-    TipMessagingThread.Main:
+  Assert(ASubscription.MessagingThread in [TipMessagingThread.Main, TipMessagingThread.Async, TipMessagingThread.Background]);
+  if ASubscription.MessagingThread = TipMessagingThread.Main then
+    TThread.Queue(nil, procedure()
       begin
-        if MainThreadID = TThread.CurrentThread.ThreadID then
-          ASubscription.Invoke(@AArgument)
-        else
-          TThread.Queue(nil, procedure()
-            begin
-              ASubscription.Invoke(@AArgument);
-            end);
-      end;
-    // The subscriber method will be invoked asynchronously in a new anonnymous thread other than the posting thread
-    TipMessagingThread.Async:
-      TTask.Run(procedure()
-        begin
-          ASubscription.Invoke(@AArgument);
-        end);
-    // If the posting thread is the main thread, the subscriber method will be invoked asynchronously in a new
-    // anonnymous thread, other than the posting thread. If the posting thread is not the main thread, the subscriber
-    // method will be invoked synchronously in the same posting thread
-    TipMessagingThread.Background:
-      begin
-        if MainThreadID = TThread.CurrentThread.ThreadID then
-          TTask.Run(procedure()
-            begin
-              ASubscription.Invoke(@AArgument);
-            end)
-        else
-          ASubscription.Invoke(@AArgument);
-      end;
+        ASubscription.Invoke(@AArgument);
+      end)
   else
-    Assert(False);
-  end;
+    // TipMessagingThread.Async, TipMessagingThread.Background:
+    TTask.Run(procedure()
+      begin
+        ASubscription.Invoke(@AArgument);
+      end);
 end;
 
 function TipMessageManager.IsSubscribed(
