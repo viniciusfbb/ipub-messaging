@@ -351,7 +351,7 @@ begin
   FGUIDCacheSync.Enter;
   {$ENDIF}
   try
-    FGUIDCacheMap.TryAdd(ATypeInfo, Result);
+    FGUIDCacheMap.AddOrSetValue(ATypeInfo, Result);
   finally
     {$IF CompilerVersion >= 34.0}
     FGUIDCacheSync.EndWrite;
