@@ -625,10 +625,12 @@ begin
       LParamsLength := Length(LRttiMethod.GetParameters);
 
       if LParamsLength <> 1 then
-        raise EipMessaging.CreateFmt('Method %s.%s have invalid arguments. ', [AClass.QualifiedClassName, LRttiMethod.Name]);
+        raise EipMessaging.CreateFmt('Method %s.%s have invalid arguments.', [AClass.QualifiedClassName, LRttiMethod.Name]);
       LRttiParamType := LRttiMethod.GetParameters[0].ParamType;
       if LRttiParamType = nil then
-        raise EipMessaging.CreateFmt('Method %s.%s have invalid arguments. ', [AClass.QualifiedClassName, LRttiMethod.Name]);
+        raise EipMessaging.CreateFmt('Method %s.%s have invalid arguments.', [AClass.QualifiedClassName, LRttiMethod.Name]);
+      if not (TParamFlag.pfConst in LRttiMethod.GetParameters[0].Flags) then
+        raise EipMessaging.CreateFmt('Method %s.%s have invalid parameter modifier. Should be const.', [AClass.QualifiedClassName, LRttiMethod.Name]);
       LTypeKind := LRttiParamType.TypeKind;
       if not (LTypeKind in [TTypeKind.tkUString, TTypeKind.tkInterface]) then
         raise EipMessaging.CreateFmt('Method %s.%s has attribute %s, but the method have invalid arguments. ' +

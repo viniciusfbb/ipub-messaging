@@ -61,6 +61,7 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
     Showmessage('Log out!');
   end;
   ```
+  You can also declare the method in protected part, but to do this you need to add {$RTTI EXPLICIT METHODS([vcProtected, vcPublic, vcPublished])} before the class.
   
   #### Sending a message
   ```delphi  
@@ -106,7 +107,7 @@ Thread safe, asynchronous and simplistic messaging system for communication betw
   ```
   These two manual methods are independent of the Subscribe / Unsubscribe methods. You can merge the same class with subscribed methods automatically using the [Subscribe] attribute and calling Subscribe / Unsubscribe, and at the same time in this class having methods that you added manually using SubscribeMethod / UnsubscribeMethod.
 
-  Another benefit of manually enrolling methods is that they do not restrict to public methods only.
+  Another benefit of manually enrolling methods is that they do not restrict to public methods only (although this problem can be solved using the RTTI EXPLICIT METHODS directive).
 
   #### Considerations
   The idea of the system is just to forward messages, notices, containing or not information, so keep in mind that it is not advisable to place large codes or codes with stops (waitfor) within the subscribed methods to listen to messages, as this would directly affect the performance of the system, even in asynchronous modes.

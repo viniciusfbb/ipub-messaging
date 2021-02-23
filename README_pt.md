@@ -61,6 +61,7 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
     Showmessage('Log out!');
   end;
   ```
+  Você também poderá declarar o método no protected, mas para isso você precisará adicionar a diretiva {$RTTI EXPLICIT METHODS([vcProtected, vcPublic, vcPublished])} antes da classe.
   
   #### Enviando uma mensagem
   ```delphi  
@@ -106,7 +107,7 @@ Sistema de mensagens thread-safe, assíncrono e simplista para comunicação ent
   ```
   Estes dois métodos manuais são independente dos métodos Subscribe/Unsubscribe. Você pode mesclar uma mesma classe com métodos inscritos automaticamente usando o atributo [Subscribe] e chamando o Subscribe/Unsubscribe, e ao mesmo tempo nesta classe ter métodos que você adicionou manualmente usando o SubscribeMethod/UnsubscribeMethod.  
 
-  Outro benefício de inscrever métodos manualmente é o fato de não restringir a apenas métodos públicos.
+  Outro benefício de inscrever métodos manualmente é o fato de não restringir a apenas métodos públicos (embora este problema possa ser resolvido usando a diretiva RTTI EXPLICIT METHODS).
 
   #### Considerações
   A ideia do sistema é apenas repassar mensagens, avisos, contendo ou não informações, então tenha em mente que não é aconselhável colocar grandes códigos ou códigos com paradas (waitfor) dentro dos métodos inscritos para escutar mensagens, pois isso afetaria diretamente a performance do sistema, mesmo nos modos assíncronos.
